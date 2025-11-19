@@ -5,8 +5,8 @@
         public MoveResult DecideNextMove(ElevatorSystem elevator)
         {
             //params
-            double futureRequestWeight = .5;
-            double distPow = 3.0;
+            double futureRequestWeight = 0.5;
+            double distPow = Math.PI;
 
             //Console.WriteLine(elevator.CurrentTime);
             if (elevator.PendingRequests.Any(x => x.From == elevator.CurrentElevatorFloor) || elevator.ActiveRiders.Any(x => x.To == elevator.CurrentElevatorFloor))
@@ -17,7 +17,7 @@
 
             int floorCount = elevator.Building.MaxFloor - elevator.Building.MinFloor + 1;
             double baseTilePassProbability = 0;
-            if (elevator.CurrentTime < 20)
+            if (elevator.CurrentTime < Program.TimeForRequests)
             {
                 baseTilePassProbability = Program.RequestDensityPercent * futureRequestWeight;
             }
