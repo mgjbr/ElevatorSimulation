@@ -185,6 +185,7 @@ public class MojeStrategieStrategy : IElevatorStrategy
         // Váš algoritmus zde
         // Máte přístup k:
         // - elevator.CurrentElevatorFloor
+        // - elevator.CurrentElevatorDirection
         // - elevator.PendingRequests
         // - elevator.ActiveRiders
         // - elevator.Building
