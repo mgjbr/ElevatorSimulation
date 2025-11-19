@@ -1,185 +1,133 @@
-# Turnaj vıtahovıch strategií - Návod pro studenty
+ï»¿# Turnaj vÃ½tahovÃ½ch strategiÃ­ - NÃ¡vod pro studenty
 
 ## Co je to turnaj?
 
 Turnaj automaticky:
-1. Najde všechny strategie v projektu (t?ídy implementující `IElevatorStrategy`)
-2. Spustí kadou strategii na 5 r?znıch scéná?ích (seedech)
-3. Spo?ítá pr?m?rné statistiky pro kadou strategii
-4. Se?adí strategie podle **pr?m?rné celkové doby** (?ím niší, tím lepší)
-5. Vypíše tabulku s vısledky
+1. Najde vÅ¡echny strategie v projektu (tÅ™Ã­dy implementujÃ­cÃ­ `IElevatorStrategy`)
+2. SpustÃ­ kaÅ¾dou strategii na 5 rÅ¯znÃ½ch scÃ©nÃ¡Å™Ã­ch (seedech)
+3. SpoÄÃ­tÃ¡ prÅ¯mÄ›rnÃ© statistiky pro kaÅ¾dou strategii
+4. SeÅ™adÃ­ strategie podle **prÅ¯mÄ›rnÃ© celkovÃ© doby** (ÄÃ­m niÅ¾Å¡Ã­, tÃ­m lepÅ¡Ã­)
+5. VypÃ­Å¡e tabulku s vÃ½sledky
 
-## Jak p?idat svou strategii
+## Jak pÅ™idat svou strategii
 
-### Krok 1: Vytvo?te novı soubor
-Ve sloce `Strategies/` vytvo?te novı soubor, nap?íklad `MojeStrategieStrategy.cs`
+### Krok 1: VytvoÅ™te novÃ½ soubor
+Ve sloÅ¾ce `Strategies/` vytvoÅ™te novÃ½ soubor, napÅ™Ã­klad `MojeStrategieStrategy.cs`
 
-### Krok 2: Implementujte rozhraní
+### Krok 2: Implementujte rozhranÃ­
 ```csharp
 namespace ElevatorSimulation.Strategies;
 
 /// <summary>
-/// Popis vaší strategie zde.
+/// Popis vaÅ¡Ã­ strategie zde.
 /// </summary>
 public class MojeStrategieStrategy : IElevatorStrategy
 {
     public MoveResult DecideNextMove(ElevatorSystem elevator)
     {
-        // TODO: Implementujte sv?j algoritmus
+        // TODO: Implementujte svÅ¯j algoritmus
         
         return MoveResult.NoAction;
     }
 }
 ```
 
-### Krok 3: Implementujte logiku rozhodování
+### Krok 3: Implementujte logiku rozhodovÃ¡nÃ­
 
-Máte p?ístup k t?mto informacím:
+MÃ¡te pÅ™Ã­stup k tÄ›mto informacÃ­m:
 
 ```csharp
-// Aktuální patro vıtahu (int)
+// AktuÃ¡lnÃ­ patro vÃ½tahu (int)
 elevator.CurrentElevatorFloor
 
-// Cestující ?ekající na vyzvednutí (List<RiderRequest>)
+// CestujÃ­cÃ­ ÄekajÃ­cÃ­ na vyzvednutÃ­ (List<RiderRequest>)
 elevator.PendingRequests
-// Pro kadı poadavek: request.From, request.To, request.CreatedAt
+// Pro kaÅ¾dÃ½ poÅ¾adavek: request.From, request.To, request.CreatedAt
 
-// Cestující uvnit? vıtahu (List<RiderRequest>)
+// CestujÃ­cÃ­ uvnitÅ™ vÃ½tahu (List<RiderRequest>)
 elevator.ActiveRiders
-// Pro kadı poadavek: request.To (cílové patro)
+// Pro kaÅ¾dÃ½ poÅ¾adavek: request.To (cÃ­lovÃ© patro)
 
 // Konfigurace budovy
 elevator.Building.MinFloor  // obvykle 0
 elevator.Building.MaxFloor  // obvykle 9
 
-// Aktuální ?as simulace
+// AktuÃ¡lnÃ­ Äas simulace
 elevator.CurrentTime
 ```
 
-Musíte vrátit jednu z t?chto akcí:
-- `MoveResult.MoveUp` – je? o patro nahoru
-- `MoveResult.MoveDown` – je? o patro dol?
-- `MoveResult.OpenDoors` – otev?i dve?e (vyzvedni/vylo? cestující)
-- `MoveResult.NoAction` – ne?innost (?ekej)
+MusÃ­te vrÃ¡tit jednu z tÄ›chto akcÃ­:
+- `MoveResult.MoveUp` â€“ jeÄ o patro nahoru
+- `MoveResult.MoveDown` â€“ jeÄ o patro dolÅ¯
+- `MoveResult.OpenDoors` â€“ otevÅ™i dveÅ™e (vyzvedni/vyloÄ cestujÃ­cÃ­)
+- `MoveResult.NoAction` â€“ neÄinnost (Äekej)
 
-### Krok 4: Spus?te turnaj
-```bash
-dotnet run
-```
-
-Vaše strategie se automaticky objeví v turnaji!
-
-## P?íklad: Jednoduchá strategie "Nearest First"
-
-```csharp
-namespace ElevatorSimulation.Strategies;
-
-public class NearestFirstStrategy : IElevatorStrategy
-{
-    public MoveResult DecideNextMove(ElevatorSystem elevator)
-    {
-        // Nejd?ív vyloíme cestující, pokud jsou na cílovém pat?e
-        if (elevator.ActiveRiders.Count > 0)
-        {
-            // Najdeme nejbliší cíl
-            var closestDestination = elevator.ActiveRiders
-                .Select(r => r.To)
-                .OrderBy(floor => Math.Abs(floor - elevator.CurrentElevatorFloor))
-                .First();
-
-            // Jedeme k n?mu
-            if (closestDestination > elevator.CurrentElevatorFloor)
-                return MoveResult.MoveUp;
-            if (closestDestination < elevator.CurrentElevatorFloor)
-                return MoveResult.MoveDown;
-            return MoveResult.OpenDoors;
-        }
-
-        // Pokud nemáme cestující, jedeme k nejblišímu ?ekajícímu
-        if (elevator.PendingRequests.Count > 0)
-        {
-            var nearestRequest = elevator.PendingRequests
-                .OrderBy(r => Math.Abs(r.From - elevator.CurrentElevatorFloor))
-                .First();
-
-            if (nearestRequest.From > elevator.CurrentElevatorFloor)
-                return MoveResult.MoveUp;
-            if (nearestRequest.From < elevator.CurrentElevatorFloor)
-                return MoveResult.MoveDown;
-            return MoveResult.OpenDoors;
-        }
-
-        // Nic ned?lat
-        return MoveResult.NoAction;
-    }
-}
-```
 
 ## Tipy pro dobrou strategii
 
-1. **Prioritizujte aktivní cestující** – Lidé ve vıtahu by m?li bıt doru?eni rychle
-2. **Minimalizujte zbyte?né pohyby** – Nepojíd?jte sem a tam bez d?vodu
-3. **Skupinujte poadavky** – Pokud jedete nahoru, vyzvedn?te všechny cestující po cest?
-4. **Zvate sm?r pohybu** – Udrujte konzistentní sm?r dokud to dává smysl
-5. **Testujte r?zné p?ístupy** – N?kdy jednodušší strategie je lepší!
+1. **Prioritizujte aktivnÃ­ cestujÃ­cÃ­** â€“ LidÃ© ve vÃ½tahu by mÄ›li bÃ½t doruÄeni rychle
+2. **Minimalizujte zbyteÄnÃ© pohyby** â€“ NepojÃ­Å¾dÄ›jte sem a tam bez dÅ¯vodu
+3. **Skupinujte poÅ¾adavky** â€“ Pokud jedete nahoru, vyzvednÄ›te vÅ¡echny cestujÃ­cÃ­ po cestÄ›
+4. **ZvaÅ¾te smÄ›r pohybu** â€“ UdrÅ¾ujte konzistentnÃ­ smÄ›r dokud to dÃ¡vÃ¡ smysl
+5. **Testujte rÅ¯znÃ© pÅ™Ã­stupy** â€“ NÄ›kdy jednoduÅ¡Å¡Ã­ strategie je lepÅ¡Ã­!
 
-## Hodnocení
+## HodnocenÃ­
 
-Hlavní metrika: **Average Total Time** (pr?m?rná celková doba)
-- M??í pr?m?rnou dobu od vytvo?ení poadavku do doru?ení cestujícího
-- Niší hodnota = lepší strategie
+HlavnÃ­ metrika: **Average Total Time** (prÅ¯mÄ›rnÃ¡ celkovÃ¡ doba)
+- MÄ›Å™Ã­ prÅ¯mÄ›rnou dobu od vytvoÅ™enÃ­ poÅ¾adavku do doruÄenÃ­ cestujÃ­cÃ­ho
+- NiÅ¾Å¡Ã­ hodnota = lepÅ¡Ã­ strategie
 
-Další metriky:
-- **Average Wait Time** – pr?m?rná doba ?ekání na vyzvednutí
-- **Average Travel Time** – pr?m?rná doba cesty ve vıtahu
-- **Completed** – po?et dokon?enıch poadavk? (m?lo by bıt stejné pro všechny)
+DalÅ¡Ã­ metriky:
+- **Average Wait Time** â€“ prÅ¯mÄ›rnÃ¡ doba ÄekÃ¡nÃ­ na vyzvednutÃ­
+- **Average Travel Time** â€“ prÅ¯mÄ›rnÃ¡ doba cesty ve vÃ½tahu
+- **Completed** â€“ poÄet dokonÄenÃ½ch poÅ¾adavkÅ¯ (mÄ›lo by bÃ½t stejnÃ© pro vÅ¡echny)
 
-## Testování
+## TestovÃ¡nÃ­
 
-### Turnajovı reim (vıchozí)
-Spustí všechny strategie na více scéná?ích:
+### TurnajovÃ½ reÅ¾im (vÃ½chozÃ­)
+SpustÃ­ vÅ¡echny strategie na vÃ­ce scÃ©nÃ¡Å™Ã­ch:
 ```bash
 dotnet run
 ```
 
-### Test jedné strategie
+### Test jednÃ© strategie
 V `Program.cs` nastavte:
 ```csharp
 public const bool TournamentMode = false;
 ```
 
-Pak v `Main()` odkomentujte ?ádek s vaší strategií:
+Pak v `Main()` odkomentujte Å™Ã¡dek s vaÅ¡Ã­ strategiÃ­:
 ```csharp
-RunSimulation("MOJE STRATEGIE", new MojeStrategieStrategy(), building, seed: RandomSeed);
+RunSingleSimulation("MOJE STRATEGIE", new MojeStrategieStrategy(), building, seed: RandomSeed);
 ```
 
-## ?asto kladené otázky
+## ÄŒasto kladenÃ© otÃ¡zky
 
-**Q: Jak zjistím, jestli jsem na správném pat?e pro vyzvednutí/vyloení?**  
-A: Zavoláním `MoveResult.OpenDoors` se automaticky vyzvednou/vyloí všichni relevantní cestující na aktuálním pat?e.
+**Q: Jak zjistÃ­m, jestli jsem na sprÃ¡vnÃ©m patÅ™e pro vyzvednutÃ­/vyloÅ¾enÃ­?**  
+A: ZavolÃ¡nÃ­m `MoveResult.OpenDoors` se automaticky vyzvednou/vyloÅ¾Ã­ vÅ¡ichni relevantnÃ­ cestujÃ­cÃ­ na aktuÃ¡lnÃ­m patÅ™e.
 
-**Q: Co se stane, kdy se pokusím jet mimo budovu?**  
-A: Pouijte `elevator.Building.IsValidFloor(floor)` pro kontrolu.
+**Q: Co se stane, kdyÅ¾ se pokusÃ­m jet mimo budovu?**  
+A: PouÅ¾ijte `elevator.Building.IsValidFloor(floor)` pro kontrolu.
 
-**Q: M?u pouít vlastní prom?nné/stav?**  
-A: Ano! Strategie je t?ída, m?ete mít vlastní fieldy pro sledování stavu.
+**Q: MÅ¯Å¾u pouÅ¾Ã­t vlastnÃ­ promÄ›nnÃ©/stavy?**  
+A: Ano! Strategie je tÅ™Ã­da, mÅ¯Å¾ete mÃ­t vlastnÃ­ fieldy pro sledovÃ¡nÃ­ stavu.
 
-**Q: Jak vím, jestli moje strategie je dobrá?**  
-A: Porovnejte ji s ostatními v turnaji. Ideáln? by m?la bıt v TOP 3!
+**Q: Jak vÃ­m, jestli moje strategie je dobrÃ¡?**  
+A: Porovnejte ji s ostatnÃ­mi v turnaji. IdeÃ¡lnÄ› by mÄ›la bÃ½t v TOP 3!
 
-**Q: Kolik strategií m?u p?idat?**  
-A: Neomezen?! Všechny se automaticky objeví v turnaji.
+**Q: Kolik strategiÃ­ mÅ¯Å¾u pÅ™idat?**  
+A: NeomezenÄ›! VÅ¡echny se automaticky objevÃ­ v turnaji.
 
-## D?leité poznámky
+## DÅ¯leÅ¾itÃ© poznÃ¡mky
 
-- Kadı krok (move/openDoors/noAction) trvá 1 ?asovou jednotku
-- Poadavky p?icházejí náhodn? b?hem prvních 20 krok?
-- Simulace kon?í, kdy jsou všichni cestující doru?eni
-- Turnaj b?í kadou strategii 5x s r?znımi seedy pro spravedlivé porovnání
-- Název vaší strategie v turnaji bude název t?ídy bez p?ípony "Strategy" (nap?. `MojeStrategieStrategy` ? `MOJESTRATEGIE`)
+- KaÅ¾dÃ½ krok (move/openDoors/noAction) trvÃ¡ 1 Äasovou jednotku
+- PoÅ¾adavky pÅ™ichÃ¡zejÃ­ nÃ¡hodnÄ› bÄ›hem prvnÃ­ch 20 krokÅ¯
+- Simulace konÄÃ­, kdyÅ¾ jsou vÅ¡ichni cestujÃ­cÃ­ doruÄeni
+- Turnaj bÄ›Å¾Ã­ kaÅ¾dou strategii 5x s rÅ¯znÃ½mi seedy pro spravedlivÃ© porovnÃ¡nÃ­
+- NÃ¡zev vaÅ¡Ã­ strategie v turnaji bude nÃ¡zev tÅ™Ã­dy bez pÅ™Ã­pony "Strategy" (napÅ™. `MojeStrategieStrategy` â†’ `MOJESTRATEGIE`)
 
-## Úsp?ch!
+## ÃšspÄ›ch!
 
-Hodn? št?stí s vıvojem vaší strategie! ??
+HodnÄ› Å¡tÄ›stÃ­ s vÃ½vojem vaÅ¡Ã­ strategie! ğŸš€
 
-Pokud máte otázky, koukn?te do existujících strategií (`FifoStrategy.cs`, `NearestFirstStrategy.cs`) jako p?íklady.
+Pokud mÃ¡te otÃ¡zky, kouknÄ›te do existujÃ­cÃ­ch strategiÃ­ (`FifoStrategy.cs`, `NearestFirstStrategy.cs`) jako pÅ™Ã­klady.
