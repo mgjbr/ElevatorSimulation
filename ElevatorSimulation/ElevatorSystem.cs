@@ -83,31 +83,31 @@ public class ElevatorSystem
 	}
 
 	/// <summary>
-	/// Executes one time unit tick. Returns the action taken.
-	/// Moving one floor = 1 time unit.
-	/// Opening/closing doors (stopping) = 1 time unit.
-	/// Idling = 1 time unit.
+	/// Executes one time unit tick and processes elevator movement and requests.
 	/// </summary>
-	public MoveResult TickOneTimeUnit()
+	public void TickOneTimeUnit()
 	{
 		CurrentTime++;
 
 		var result = _strategy.DecideNextMove(this);
 
-		// Handle movement / people getting on/off
 		switch (result)
 		{
 			case MoveResult.MoveUp:
 				CurrentElevatorFloor++;
 				CurrentElevatorDirection = Direction.Up;
 				if (!SilentMode)
+				{
 					Console.WriteLine($"[{CurrentTime:00}] ⬆️  Move up to floor {CurrentElevatorFloor}");
+				}
 				break;
 			case MoveResult.MoveDown:
 				CurrentElevatorFloor--;
 				CurrentElevatorDirection = Direction.Down;
 				if (!SilentMode)
+				{
 					Console.WriteLine($"[{CurrentTime:00}] ⬇️  Move down to floor {CurrentElevatorFloor}");
+				}
 				break;
 			case MoveResult.OpenDoors:
 				// Drop off riding passengers at current floor
@@ -121,7 +121,9 @@ public class ElevatorSystem
 					Statistics.RecordCompletedRequest(request);
 					ActiveRiders.Remove(request);
 					if (!SilentMode)
+					{
 						Console.WriteLine($"[{CurrentTime:00}] 🚪 Drop off passenger at floor {CurrentElevatorFloor}");
+					}
 				}
 
 				// Pick up waiting passengers at current floor
@@ -136,16 +138,52 @@ public class ElevatorSystem
 					PendingRequests.Remove(rider);
 					ActiveRiders.Add(rider);
 					if (!SilentMode)
+					{
 						Console.WriteLine($"[{CurrentTime:00}] 🚪 Pick up passenger at floor {CurrentElevatorFloor} (→ {rider.To})");
+					}
 				}
 				break;
 			case MoveResult.NoAction:
 				CurrentElevatorDirection = Direction.Idle;
 				if (!SilentMode)
+				{
 					Console.WriteLine($"[{CurrentTime:00}] 🛑 No action (idle)");
+				}
 				break;
 		}
+	}
 
-		return result;
+	/// <summary>
+	/// Runs a complete simulation with the given list of requests.
+	/// </summary>
+	/// <param name="requestsTimeline">List of rider requests to process (one per time unit, null if no request)</param>
+	public void RunSimulation(List<RiderRequest> requestsTimeline)
+	{
+		int requestNumber = 0;
+
+		while (true)
+		{
+			var request = (CurrentTime < requestsTimeline.Count) ? requestsTimeline[CurrentTime] : null;
+
+			if (request is not null)
+			{
+				requestNumber++;
+				if (!SilentMode)
+				{
+					Console.WriteLine($"[{CurrentTime:00}] 📞 Request #{requestNumber}: floor {request.From} → {request.To}");
+				}
+				ReceiveRequest(request);
+			}
+
+			TickOneTimeUnit();
+
+			// Stop when no more requests and elevator is idle
+			if ((CurrentTime >= requestsTimeline.Count)
+				&& (PendingRequests.Count == 0)
+				&& (ActiveRiders.Count == 0))
+			{
+				break;
+			}
+		}
 	}
 }

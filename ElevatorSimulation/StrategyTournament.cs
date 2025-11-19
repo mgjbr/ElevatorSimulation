@@ -1,5 +1,5 @@
-using ElevatorSimulation.Strategies;
 using System.Reflection;
+using ElevatorSimulation.Strategies;
 
 namespace ElevatorSimulation;
 
@@ -116,31 +116,7 @@ public class StrategyTournament
 			.Select(_ => GenerateRandomRequest(_building, random))
 			.ToList();
 
-		var requestEnumerator = randomRequests.GetEnumerator();
-
-		while (true)
-		{
-			RiderRequest request = null;
-			if (requestEnumerator.MoveNext())
-			{
-				request = requestEnumerator.Current;
-			}
-
-			if (request is not null)
-			{
-				elevator.ReceiveRequest(request);
-			}
-
-			var moveResult = elevator.TickOneTimeUnit();
-
-			// Stop when no more requests and elevator is idle
-			if ((elevator.CurrentTime >= Program.TimeForRequests)
-				&& (elevator.PendingRequests.Count == 0)
-				&& (elevator.ActiveRiders.Count == 0))
-			{
-				break;
-			}
-		}
+		elevator.RunSimulation(randomRequests);
 
 		return elevator.Statistics;
 	}
