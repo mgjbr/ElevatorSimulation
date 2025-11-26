@@ -6,12 +6,18 @@ internal class MaFiStrategy : IElevatorStrategy
     // A Prefix = add
     // AM Prefix = add/multiply (setting to 0 means no effect)
 
-    public double MPickUpBias = 1.5;
-    public double MDropOffBias = 0.9;
-    public double MOpenDoorBias = 7.8;
-    public double AMHeatMapBias = 0.98;
-    public double MPrioritizeCurrentDirectionBias = 1.8;
+    public double MPickUpBias = 3.0;
+    public double MDropOffBias = 3.0;
+    public double MOpenDoorBias = 5.6;
+    public double AMHeatMapBias = 0.78;
+    public double MPrioritizeCurrentDirectionBias = 1.1;
+    public double MStarvationMultiplier = 1.1;
+    public int StarvationThreshold = 17;
+    public double TravelCostPerFloor = 0.12;
+    public int HeatMapRadius = 1;
 
+    public bool EnableStarvationPrevention = true;
+    public bool EnableTravelCost = true;
 
     public MoveResult DecideNextMove(ElevatorSystem elevator)
     {
@@ -28,9 +34,21 @@ internal class MaFiStrategy : IElevatorStrategy
 
         var floorMoveScores = GetScores(elevator);
 
+        // Safeguard: If all scores are zero or very close to zero, pick the nearest floor with activity
+        var maxScore = floorMoveScores.Values.Max();
+        if (maxScore < 0.001)
+        {
+            return MoveToNearestRequest(elevator);
+        }
+
         // Find the floor with the highest score, and move towards it
         // if it's the current floor, open doors
-        var bestFloor = floorMoveScores.MaxBy(kv => kv.Value).Key;
+        // Use tie-breaking: if multiple floors have the same score, prefer the nearest one
+        var bestFloor = floorMoveScores
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => Math.Abs(kv.Key - elevator.CurrentElevatorFloor))
+            .First().Key;
+        
         if (bestFloor == elevator.CurrentElevatorFloor)
         {
             return MoveResult.OpenDoors;
@@ -40,106 +58,268 @@ internal class MaFiStrategy : IElevatorStrategy
             return MoveTowardsFloor(elevator, bestFloor);
         }
     }
+    
+    /// <summary>
+    /// Fallback strategy: Move to the nearest floor with pending requests or active riders.
+    /// This prevents getting stuck when all scores are zero.
+    /// </summary>
+    private MoveResult MoveToNearestRequest(ElevatorSystem elevator)
+    {
+        var currentFloor = elevator.CurrentElevatorFloor;
+        int? nearestFloor = null;
+        int minDistance = int.MaxValue;
 
+        // Check all pending pickup locations
+        foreach (var request in elevator.PendingRequests)
+        {
+            int distance = Math.Abs(request.From - currentFloor);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                nearestFloor = request.From;
+            }
+        }
+
+        // Check all active rider destinations
+        foreach (var rider in elevator.ActiveRiders)
+        {
+            int distance = Math.Abs(rider.To - currentFloor);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                nearestFloor = rider.To;
+            }
+        }
+
+        // Move towards nearest floor, or stay idle if nothing found
+        if (nearestFloor.HasValue)
+        {
+            return MoveTowardsFloor(elevator, nearestFloor.Value);
+        }
+
+        return MoveResult.NoAction;
+    }
+    
     private Dictionary<int, double> GetScores(ElevatorSystem elevator)
     {
         var floorMoveScores = new Dictionary<int, double>();
 
-        SetBaseRiderScores(elevator, floorMoveScores);
-        AddHeatMapScores(elevator, floorMoveScores);
-        AddSameDirectionScore(elevator, floorMoveScores);
+        // Pre-compute floor groupings once (performance optimization)
+        var pickupsByFloor = GroupRequestsByFloor(elevator.PendingRequests);
+        var dropoffsByFloor = GroupRidersByDestination(elevator.ActiveRiders);
+        var directionInfo = AnalyzeDirections(elevator);
 
-        AddOpenDoorScore(elevator, floorMoveScores); // Always at the end...
+        SetBaseRiderScores(elevator, floorMoveScores, pickupsByFloor, dropoffsByFloor);
+        
+        if (AMHeatMapBias > 0.01)
+        {
+            AddHeatMapScores(elevator, floorMoveScores);
+        }
+        
+        AddSameDirectionScore(elevator, floorMoveScores, directionInfo);
+        
+        if (EnableStarvationPrevention)
+        {
+            AddStarvationPreventionScore(elevator, floorMoveScores, pickupsByFloor);
+        }
+        
+        if (EnableTravelCost)
+        {
+            ApplyTravelCost(elevator, floorMoveScores);
+        }
+
+        AddOpenDoorScore(elevator, floorMoveScores, pickupsByFloor, dropoffsByFloor); // Always at the end...
 
         return floorMoveScores;
     }
 
-    private void SetBaseRiderScores(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores)
+    // Performance optimization: Pre-compute floor lookups instead of repeated LINQ queries
+    private Dictionary<int, List<RiderRequest>> GroupRequestsByFloor(List<RiderRequest> requests)
+    {
+        var groups = new Dictionary<int, List<RiderRequest>>();
+        foreach (var request in requests)
+        {
+            if (!groups.ContainsKey(request.From))
+                groups[request.From] = new List<RiderRequest>();
+            groups[request.From].Add(request);
+        }
+        return groups;
+    }
+
+    private Dictionary<int, List<RiderRequest>> GroupRidersByDestination(List<RiderRequest> riders)
+    {
+        var groups = new Dictionary<int, List<RiderRequest>>();
+        foreach (var rider in riders)
+        {
+            if (!groups.ContainsKey(rider.To))
+                groups[rider.To] = new List<RiderRequest>();
+            groups[rider.To].Add(rider);
+        }
+        return groups;
+    }
+
+    // Cache direction availability analysis (single pass)
+    private record DirectionInfo(bool HasUpRequests, bool HasDownRequests);
+    
+    private DirectionInfo AnalyzeDirections(ElevatorSystem elevator)
+    {
+        bool hasUp = false;
+        bool hasDown = false;
+        int currentFloor = elevator.CurrentElevatorFloor;
+
+        foreach (var request in elevator.PendingRequests)
+        {
+            if (request.From > currentFloor) hasUp = true;
+            if (request.From < currentFloor) hasDown = true;
+            if (hasUp && hasDown) break; // Early exit
+        }
+
+        if (!hasUp || !hasDown) // Only check riders if needed
+        {
+            foreach (var rider in elevator.ActiveRiders)
+            {
+                if (rider.To > currentFloor) hasUp = true;
+                if (rider.To < currentFloor) hasDown = true;
+                if (hasUp && hasDown) break;
+            }
+        }
+
+        return new DirectionInfo(hasUp, hasDown);
+    }
+
+    private void SetBaseRiderScores(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores,
+        Dictionary<int, List<RiderRequest>> pickupsByFloor, Dictionary<int, List<RiderRequest>> dropoffsByFloor)
     {
         for (int floor = elevator.Building.MinFloor; floor <= elevator.Building.MaxFloor; floor++)
         {
             double score = 0d;
 
-            var waitingRiders = elevator.PendingRequests.Where(r => r.From == floor).ToArray();
-            var activeRiders = elevator.ActiveRiders.Where(r => r.To == floor).ToArray();
+            // Use pre-computed lookups instead of LINQ
+            int waitingCount = pickupsByFloor.TryGetValue(floor, out var pickups) ? pickups.Count : 0;
+            int dropoffCount = dropoffsByFloor.TryGetValue(floor, out var dropoffs) ? dropoffs.Count : 0;
 
             // Add score for pickup and dropoff
             // Prioritize spaces with most riders waiting + most riders to drop off
-            score += waitingRiders.Length * MPickUpBias;
-            score += activeRiders.Length * MDropOffBias;
+            score += waitingCount * MPickUpBias;
+            score += dropoffCount * MDropOffBias;
+            
+            // Add a minimum base score for floors with activity to prevent zero scores
+            if (waitingCount > 0 || dropoffCount > 0)
+            {
+                score = Math.Max(score, 0.1);
+            }
 
             floorMoveScores[floor] = score;
         }
     }
 
+    // Improved heatmap with configurable radius and weighted averaging
     private void AddHeatMapScores(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores)
     {
-        // Take each floor and add the score of floors around it (1 above + 1 below)
         var heatmapScores = new Dictionary<int, double>(floorMoveScores.Count);
 
         for (int floor = elevator.Building.MinFloor; floor <= elevator.Building.MaxFloor; floor++)
         {
             double heatmapScore = 0d;
+            double totalWeight = 0d;
 
-            // Add score from the floor itself
-            heatmapScore += floorMoveScores[floor];
-
-            // Add score from the floor above
-            if (floor < elevator.Building.MaxFloor)
+            // Consider neighbors within radius
+            for (int offset = -HeatMapRadius; offset <= HeatMapRadius; offset++)
             {
-                heatmapScore += floorMoveScores[floor + 1];
-            }
-            // Add score from the floor below
-            if (floor > elevator.Building.MinFloor)
-            {
-                heatmapScore += floorMoveScores[floor - 1];
+                int neighborFloor = floor + offset;
+                if (neighborFloor >= elevator.Building.MinFloor && 
+                    neighborFloor <= elevator.Building.MaxFloor)
+                {
+                    // Closer floors have more weight
+                    double weight = 1.0 / (Math.Abs(offset) + 1.0);
+                    heatmapScore += floorMoveScores[neighborFloor] * weight;
+                    totalWeight += weight;
+                }
             }
 
-            heatmapScore /= 3.0; // Average score
-
-            // Apply heatmap bias
+            heatmapScore /= totalWeight; // Weighted average
             heatmapScore *= AMHeatMapBias;
-            floorMoveScores[floor] += heatmapScore;
+            
+            heatmapScores[floor] = heatmapScore;
+        }
+
+        // Apply heatmap scores
+        for (int floor = elevator.Building.MinFloor; floor <= elevator.Building.MaxFloor; floor++)
+        {
+            floorMoveScores[floor] += heatmapScores[floor];
         }
     }
 
-    private void AddSameDirectionScore(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores)
+    private void AddSameDirectionScore(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores,
+        DirectionInfo directionInfo)
     {
         // If the elevator is moving up, prioritize floors above
         // If the elevator is moving down, prioritize floors below
 
-        // Only do so if there are active riders or pending requests in that direction
-        if (elevator.CurrentElevatorDirection == Direction.Up)
+        if (elevator.CurrentElevatorDirection == Direction.Up && directionInfo.HasUpRequests)
         {
-            bool hasUpRequests = elevator.PendingRequests.Any(r => r.From > elevator.CurrentElevatorFloor) ||
-                                 elevator.ActiveRiders.Any(r => r.To > elevator.CurrentElevatorFloor);
-            if (hasUpRequests)
+            for (int floor = elevator.CurrentElevatorFloor + 1; floor <= elevator.Building.MaxFloor; floor++)
             {
-                for (int floor = elevator.CurrentElevatorFloor + 1; floor <= elevator.Building.MaxFloor; floor++)
-                {
-                    floorMoveScores[floor] *= MPrioritizeCurrentDirectionBias;
-                }
+                floorMoveScores[floor] *= MPrioritizeCurrentDirectionBias;
             }
         }
-        else if (elevator.CurrentElevatorDirection == Direction.Down)
+        else if (elevator.CurrentElevatorDirection == Direction.Down && directionInfo.HasDownRequests)
         {
-            bool hasDownRequests = elevator.PendingRequests.Any(r => r.From < elevator.CurrentElevatorFloor) ||
-                                   elevator.ActiveRiders.Any(r => r.To < elevator.CurrentElevatorFloor);
-            if (hasDownRequests)
+            for (int floor = elevator.Building.MinFloor; floor < elevator.CurrentElevatorFloor; floor++)
             {
-                for (int floor = elevator.Building.MinFloor; floor < elevator.CurrentElevatorFloor; floor++)
+                floorMoveScores[floor] *= MPrioritizeCurrentDirectionBias;
+            }
+        }
+    }
+
+    // New: Starvation prevention - exponentially increase priority for long-waiting requests
+    private void AddStarvationPreventionScore(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores,
+        Dictionary<int, List<RiderRequest>> pickupsByFloor)
+    {
+        foreach (var (floor, requests) in pickupsByFloor)
+        {
+            foreach (var request in requests)
+            {
+                int waitTime = elevator.CurrentTime - request.CreatedAt;
+                if (waitTime > StarvationThreshold)
                 {
-                    floorMoveScores[floor] *= MPrioritizeCurrentDirectionBias;
+                    // Exponentially increase priority based on wait time
+                    double starvationBonus = Math.Pow(MStarvationMultiplier, (waitTime - StarvationThreshold) / 5.0);
+                    floorMoveScores[floor] *= starvationBonus;
                 }
             }
         }
     }
 
-    private void AddOpenDoorScore(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores)
+    // New: Apply travel cost - penalize distant floors to encourage efficiency
+    private void ApplyTravelCost(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores)
+    {
+        int currentFloor = elevator.CurrentElevatorFloor;
+        
+        for (int floor = elevator.Building.MinFloor; floor <= elevator.Building.MaxFloor; floor++)
+        {
+            int distance = Math.Abs(floor - currentFloor);
+            double costPenalty = 1.0 - (distance * TravelCostPerFloor);
+            
+            // Ensure penalty doesn't eliminate floors with actual activity
+            // Minimum penalty of 0.2 for floors with activity, 0.01 for empty floors
+            double minPenalty = floorMoveScores[floor] > 0.001 ? 0.2 : 0.01;
+            costPenalty = Math.Max(costPenalty, minPenalty);
+            
+            floorMoveScores[floor] *= costPenalty;
+        }
+    }
+
+    private void AddOpenDoorScore(ElevatorSystem elevator, Dictionary<int, double> floorMoveScores,
+        Dictionary<int, List<RiderRequest>> pickupsByFloor, Dictionary<int, List<RiderRequest>> dropoffsByFloor)
     {
         var currentFloor = elevator.CurrentElevatorFloor;
-        if (elevator.PendingRequests.Any(r => r.From == currentFloor) ||
-            elevator.ActiveRiders.Any(r => r.To == currentFloor))
+        
+        // Use pre-computed lookups
+        bool hasPickup = pickupsByFloor.ContainsKey(currentFloor);
+        bool hasDropoff = dropoffsByFloor.ContainsKey(currentFloor);
+        
+        if (hasPickup || hasDropoff)
         {
             floorMoveScores[currentFloor] *= MOpenDoorBias;
         }
