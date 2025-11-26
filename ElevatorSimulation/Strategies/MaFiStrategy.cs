@@ -6,14 +6,14 @@ internal class MaFiStrategy : IElevatorStrategy
     // A Prefix = add
     // AM Prefix = add/multiply (setting to 0 means no effect)
 
-    public double MPickUpBias = 1.5;
-    public double MDropOffBias = 1.9;
-    public double MOpenDoorBias = 6.7;
-    public double AMHeatMapBias = 1.30;
-    public double MPrioritizeCurrentDirectionBias = 1.0;
+    public double MPickUpBias = 3.0;
+    public double MDropOffBias = 3.0;
+    public double MOpenDoorBias = 5.6;
+    public double AMHeatMapBias = 0.78;
+    public double MPrioritizeCurrentDirectionBias = 1.1;
     public double MStarvationMultiplier = 1.1;
-    public int StarvationThreshold = 25;
-    public double TravelCostPerFloor = 0.15;
+    public int StarvationThreshold = 17;
+    public double TravelCostPerFloor = 0.12;
     public int HeatMapRadius = 1;
 
     public bool EnableStarvationPrevention = true;
@@ -34,9 +34,21 @@ internal class MaFiStrategy : IElevatorStrategy
 
         var floorMoveScores = GetScores(elevator);
 
+        // Safeguard: If all scores are zero or very close to zero, pick the nearest floor with activity
+        var maxScore = floorMoveScores.Values.Max();
+        if (maxScore < 0.001)
+        {
+            return MoveToNearestRequest(elevator);
+        }
+
         // Find the floor with the highest score, and move towards it
         // if it's the current floor, open doors
-        var bestFloor = floorMoveScores.MaxBy(kv => kv.Value).Key;
+        // Use tie-breaking: if multiple floors have the same score, prefer the nearest one
+        var bestFloor = floorMoveScores
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => Math.Abs(kv.Key - elevator.CurrentElevatorFloor))
+            .First().Key;
+        
         if (bestFloor == elevator.CurrentElevatorFloor)
         {
             return MoveResult.OpenDoors;
@@ -46,7 +58,48 @@ internal class MaFiStrategy : IElevatorStrategy
             return MoveTowardsFloor(elevator, bestFloor);
         }
     }
+    
+    /// <summary>
+    /// Fallback strategy: Move to the nearest floor with pending requests or active riders.
+    /// This prevents getting stuck when all scores are zero.
+    /// </summary>
+    private MoveResult MoveToNearestRequest(ElevatorSystem elevator)
+    {
+        var currentFloor = elevator.CurrentElevatorFloor;
+        int? nearestFloor = null;
+        int minDistance = int.MaxValue;
 
+        // Check all pending pickup locations
+        foreach (var request in elevator.PendingRequests)
+        {
+            int distance = Math.Abs(request.From - currentFloor);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                nearestFloor = request.From;
+            }
+        }
+
+        // Check all active rider destinations
+        foreach (var rider in elevator.ActiveRiders)
+        {
+            int distance = Math.Abs(rider.To - currentFloor);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                nearestFloor = rider.To;
+            }
+        }
+
+        // Move towards nearest floor, or stay idle if nothing found
+        if (nearestFloor.HasValue)
+        {
+            return MoveTowardsFloor(elevator, nearestFloor.Value);
+        }
+
+        return MoveResult.NoAction;
+    }
+    
     private Dictionary<int, double> GetScores(ElevatorSystem elevator)
     {
         var floorMoveScores = new Dictionary<int, double>();
@@ -149,6 +202,12 @@ internal class MaFiStrategy : IElevatorStrategy
             // Prioritize spaces with most riders waiting + most riders to drop off
             score += waitingCount * MPickUpBias;
             score += dropoffCount * MDropOffBias;
+            
+            // Add a minimum base score for floors with activity to prevent zero scores
+            if (waitingCount > 0 || dropoffCount > 0)
+            {
+                score = Math.Max(score, 0.1);
+            }
 
             floorMoveScores[floor] = score;
         }
@@ -242,8 +301,10 @@ internal class MaFiStrategy : IElevatorStrategy
             int distance = Math.Abs(floor - currentFloor);
             double costPenalty = 1.0 - (distance * TravelCostPerFloor);
             
-            // Ensure penalty doesn't make scores negative
-            costPenalty = Math.Max(costPenalty, 0.1);
+            // Ensure penalty doesn't eliminate floors with actual activity
+            // Minimum penalty of 0.2 for floors with activity, 0.01 for empty floors
+            double minPenalty = floorMoveScores[floor] > 0.001 ? 0.2 : 0.01;
+            costPenalty = Math.Max(costPenalty, minPenalty);
             
             floorMoveScores[floor] *= costPenalty;
         }
