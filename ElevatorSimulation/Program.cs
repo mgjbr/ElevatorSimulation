@@ -4,16 +4,18 @@ namespace ElevatorSimulation;
 
 public static class Program
 {
-	public const int TimeForRequests = 20;
+	public const int TimeForRequests = 2000;
+	public const int TimeForRequestsReal = 20;
 	public const int MaxFloor = 9;
-	public const double RequestDensityPercent = 0.30;
+	public const double RequestDensityPercentReal = 0.90030;
+	public const double RequestDensityPercent = 0.001;
 
 	// Single simulation seed
-	public const int RandomSeed = 42017;
+	public const int RandomSeed = 100;
 
 	// Tournament configuration
 	public const bool TournamentMode = true; // Set to false for single strategy testing
-	public const int TournamentScenariosCount = 10000;
+	public const int TournamentScenariosCount = 1000;
 
 	public static void Main()
 	{
@@ -76,8 +78,8 @@ public static class Program
 		runner.RunSimulation(
 			strategy,
 			RandomSeed,
-			TimeForRequests,
-			RequestDensityPercent,
+			TimeForRequestsReal,
+			RequestDensityPercentReal,
 			silentMode: false,
 			strategyName: strategyName);
 	}

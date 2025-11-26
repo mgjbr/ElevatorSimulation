@@ -110,8 +110,8 @@ public class StrategyTournament
 		return _runner.RunSimulation(
 			strategy,
 			seed,
-			Program.TimeForRequests,
-			Program.RequestDensityPercent,
+			new Random(seed).Next(Program.TimeForRequestsReal),
+			new Random(seed).NextDouble(),
 			silentMode: true);
 	}
 
