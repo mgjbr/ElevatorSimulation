@@ -56,7 +56,7 @@ namespace ElevatorSimulation.Strategies;
 /// doooodxddxxdxxcNMMMxlMMMM:lMMWcXMMdoolXMMMMMM;MMMo0MMxKMMMMlMMMMW:oddddddddddddd
 /// —MgJbr
 /// </summary>
-public class MgJbr1WiiBallStrategy //: IElevatorStrategy
+public class MgJbr1WiiBallStrategy : IElevatorStrategy
 {
 	public MoveResult DecideNextMove(ElevatorSystem elevator)
 	{
@@ -86,10 +86,16 @@ public class MgJbr1WiiBallStrategy //: IElevatorStrategy
 
 	private static bool SomeoneWantsToGetOn(ElevatorSystem elevator)
 	{
+		int requestsMin = elevator.Building.MinFloor;
+		int requestsMax = elevator.Building.MaxFloor;
+		if (elevator.PendingRequests.Count != 0) {
+			requestsMin = elevator.PendingRequests.Min((r) => r.From);
+			requestsMax = elevator.PendingRequests.Max((r) => r.From);
+		}
 		return elevator.PendingRequests.Exists((r) => r.From == elevator.CurrentElevatorFloor && elevator.CurrentElevatorDirection switch
 		{
-			Direction.Up => r.To > elevator.CurrentElevatorFloor || elevator.CurrentElevatorFloor == elevator.Building.MaxFloor,
-			Direction.Down => r.To < elevator.CurrentElevatorFloor || elevator.CurrentElevatorFloor == elevator.Building.MinFloor,
+			Direction.Up => r.To > elevator.CurrentElevatorFloor || elevator.CurrentElevatorFloor == requestsMax,
+			Direction.Down => r.To < elevator.CurrentElevatorFloor || elevator.CurrentElevatorFloor == requestsMin,
 			_ => true,
 		});
 	}
